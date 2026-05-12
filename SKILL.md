@@ -130,6 +130,8 @@ All scripts output JSON to stdout and errors to stderr. Exit code 0 = success.
 | `x_post.js` | Publish tweet → return `{ tweetId, tweetUrl, postedAt }` |
 | `submit_onchain_approval.js` | Use `onchain-intent` response → send mandatory tweet approval tx → confirm hash |
 | `claim_reward.js` | Claim campaign reward → send EVM tx → confirm hash |
+| `claim_campaign_batch.js` | Claim multiple claimable submissions from one campaign |
+| `claim_all_campaigns.js` | Claim selected claimable submissions across campaigns on one chain |
 | `claim_referral_reward.js` | Claim referral rewards (batched) → send EVM tx → confirm hash |
 | `poll_status.js` | Check submissions, claimable items, new campaigns |
 
@@ -302,6 +304,13 @@ curl -X POST $XYPER_API_BASE/api/agent/v1/submissions/claim-batch-intent/ \
   }'
 ```
 
+Helper:
+
+```
+node scripts/claim_campaign_batch.js --submission-id <uuid1> --submission-id <uuid2>
+# → { claimTxHash, submissionIds, method, status: "claimed" }
+```
+
 #### 6b. Cross-campaign claim-all on one chain
 
 Use when the runtime wants to claim multiple `claimable` submissions across different campaigns on the same chain.
@@ -334,6 +343,13 @@ curl -X POST $XYPER_API_BASE/api/agent/v1/submissions/claim-all-confirm/ \
       { "submissionIds": ["<uuid3>"], "claimTxHash": "0x..." }
     ]
   }'
+```
+
+Helper:
+
+```
+node scripts/claim_all_campaigns.js --submission-id <uuid1> --submission-id <uuid2> --submission-id <uuid3>
+# → { chainId, groups, status: "claimed" }
 ```
 
 Constraints:

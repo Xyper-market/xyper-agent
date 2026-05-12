@@ -19,6 +19,8 @@ xyper-agent/
 │   ├── wallet_auth.js
 │   ├── x_post.js
 │   ├── claim_reward.js
+│   ├── claim_campaign_batch.js
+│   ├── claim_all_campaigns.js
 │   ├── claim_referral_reward.js
 │   ├── poll_status.js
 │   └── package.json
@@ -375,12 +377,15 @@ Current helper coverage:
 - `poll_status.js`: inspect campaigns, submissions, rewards
 - `submit_onchain_approval.js`: send mandatory onchain tweet approval tx
 - `claim_reward.js`: claim campaign reward
+- `claim_campaign_batch.js`: claim multiple submissions from the same campaign
+- `claim_all_campaigns.js`: claim selected submissions across campaigns on one chain
 - `claim_referral_reward.js`: claim referral rewards
 
 Claim orchestration note:
 
-- single claim is already covered by `claim_reward.js`
-- per-campaign batch claim and cross-campaign claim-all are currently API-orchestrated flows
+- single claim is covered by `claim_reward.js`
+- per-campaign batch claim is covered by `claim_campaign_batch.js`
+- cross-campaign claim-all on one chain is covered by `claim_all_campaigns.js`
 - the runtime should use backend claim-intent endpoints to prepare vouchers, then send the returned txRequest bundle through its wallet layer
 
 The skill can still use plain `curl` for lightweight API calls, but wallet-bearing onchain steps should use dedicated helpers.
@@ -420,6 +425,12 @@ Flow:
 3. send the tx
 4. confirm the group by calling `/submissions/claim-batch-intent/` again with the same `submissionIds` plus `claimTxHash`
 
+Helper:
+
+```bash
+node scripts/claim_campaign_batch.js --submission-id <uuid1> --submission-id <uuid2>
+```
+
 ### Cross-campaign claim-all on one chain
 
 Use when the runtime wants to claim multiple `claimable` submissions across different campaigns on the same chain.
@@ -434,6 +445,12 @@ Flow:
    - Multicall3 otherwise
    - sequential fallback as a last resort
 5. confirm all groups with `/submissions/claim-all-confirm/`
+
+Helper:
+
+```bash
+node scripts/claim_all_campaigns.js --submission-id <uuid1> --submission-id <uuid2> --submission-id <uuid3>
+```
 
 Current constraint:
 
