@@ -4,6 +4,18 @@ Portable agent skill for operating a Xyper participant account end-to-end throug
 
 This package is designed to work as a standalone skill repository for different agent runtimes, including OpenClaw.
 
+## Branch variants
+
+There are currently two wallet-flow variants for this skill:
+
+- `env-key-wallet-flow`
+  This branch uses the legacy model where the runtime provides `WALLET_PRIVATE_KEY` in env. The agent reads that key directly for wallet auth and all onchain actions.
+
+- `agent-managed-wallet-flow`
+  This branch uses a skill-managed BIP44 wallet. The agent generates a local wallet state file, returns only the public address by default for funding, and reveals the private key or mnemonic only on explicit user request.
+
+The current `main` branch documents the legacy `env-key-wallet-flow` behavior unless stated otherwise in a feature branch README.
+
 ## What is inside
 
 ```text
