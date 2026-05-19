@@ -86,7 +86,7 @@ Important:
         enabled: true,
         env: {
           XYPER_API_BASE: "https://api-staging.xyper.market",
-          WALLET_PRIVATE_KEY: "REPLACE_ME",
+          XYPER_WALLET_STATE_PATH: "/opt/openclaw/config/xyper-staging-wallet.json",
           RPC_URLS: "{\"UNITZERO_TESTNET_CHAIN_ID\":\"https://rpc-testnet.unit0.dev\",\"84532\":\"https://base-sepolia.gateway.tenderly.co\"}",
           X_COOKIE_PATH: "/opt/openclaw/config/xyper-staging-x-cookies.json",
           X_BROWSER_LOGIN_URL: "https://x.com/i/flow/login",
@@ -120,7 +120,7 @@ For the user-browser-session path:
 - Unit Zero Testnet RPC: `https://rpc-testnet.unit0.dev`
 - Base Sepolia RPC: `https://base-sepolia.gateway.tenderly.co`
 - separate staging X account
-- separate staging private key
+- separate staging managed wallet file
 
 ### Production
 
@@ -128,7 +128,7 @@ For the user-browser-session path:
 - Unit Zero Mainnet RPC: `https://rpc.unit0.dev`
 - Base Mainnet RPC: `https://base-mainnet.infura.io/v3/470d580ee1074d6781ee598194d9bd4b`
 - separate prod X account
-- separate prod private key
+- separate prod managed wallet file
 
 ## Recommendation for staging/prod
 
@@ -161,7 +161,8 @@ Check that helpers work:
 
 ```bash
 cd <workspace>/skills/xyper-agent/scripts
-node wallet_auth.js --address 0x... --chain-id REPLACE_CHAIN_ID
+node wallet_helper.js generate --state-path /opt/openclaw/config/xyper-staging-wallet.json
+node wallet_auth.js --chain-id REPLACE_CHAIN_ID
 ```
 
 ## Sandbox note

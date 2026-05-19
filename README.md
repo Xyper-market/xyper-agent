@@ -16,6 +16,7 @@ xyper-agent/
 │   ├── error-taxonomy.md
 │   └── runtime.md
 ├── scripts/
+│   ├── wallet_helper.js
 │   ├── wallet_auth.js
 │   ├── x_post.js
 │   ├── claim_reward.js
@@ -32,6 +33,7 @@ xyper-agent/
 
 The skill automates the participant lifecycle without browser sessions or CSRF:
 
+0. generate a session-scoped BIP44 EVM wallet
 1. wallet auth via EIP-712 signature
 2. X account linking
 3. campaign discovery and join
@@ -73,9 +75,27 @@ Minimum runtime expectations:
 - secure environment injection
 - outbound HTTPS access to Xyper API, X, and configured RPC endpoints
 
-## Wallet funding requirement
+## Wallet model
 
-The wallet behind `WALLET_PRIVATE_KEY` must hold enough native gas token on every chain where the agent sends transactions.
+This skill no longer expects a wallet private key in env.
+
+Instead it manages a local session wallet:
+
+- `node scripts/wallet_helper.js generate` creates a new BIP44 EVM wallet
+- the helper stores mnemonic + private key in a local JSON state file
+- the helper prints only the public address by default
+- the private key or mnemonic are shown only through explicit export commands
+
+Useful commands:
+
+```bash
+node scripts/wallet_helper.js generate
+node scripts/wallet_helper.js inspect
+node scripts/wallet_helper.js export --secret private-key
+node scripts/wallet_helper.js export --secret mnemonic
+```
+
+The managed wallet must hold enough native gas token on every chain where the agent sends transactions.
 
 This is required for:
 
@@ -98,7 +118,6 @@ If the wallet has no native gas balance, the skill can authenticate and even pos
 Core variables:
 
 - `XYPER_API_BASE`
-- `WALLET_PRIVATE_KEY`
 
 Environment reference:
 
@@ -106,7 +125,7 @@ Environment reference:
 |----------|----------|-----------------|---------|
 | `XYPER_API_BASE` | yes | operator | Base URL of Xyper agent API, e.g. `https://api-staging.xyper.market` |
 | `XYPER_APP_BASE_URL` | recommended | operator | Public app base URL used when generating referral links, e.g. `https://app-staging.xyper.market` or `https://xyper.market` |
-| `WALLET_PRIVATE_KEY` | yes | operator | Wallet used for auth, onchain approval tx, and reward claim tx |
+| `XYPER_WALLET_STATE_PATH` | optional | operator/runtime | Path to the managed wallet JSON file. Default: `<skill-root>/.xyper-agent-wallet.json` |
 | `XYPER_AGENT_TOKEN` | no | runtime | Ephemeral bearer token returned by `wallet_auth.js`; runtime may keep it in memory or persist briefly between runs |
 | `XYPER_REFERRAL_CODE` | optional | operator | Referral code to use only on first wallet registration / first verify |
 | `RPC_URLS` | yes for onchain actions | operator | JSON map of chain id to RPC URL, or single URL for single-chain deployments |
@@ -158,6 +177,7 @@ Typical workflow:
 2. fill in the values for `staging` or `prod`
 3. do not commit `.env`
 4. inject the values into your agent runtime or Docker environment
+5. generate and fund the managed wallet separately with `wallet_helper.js`
 
 Recommended:
 
@@ -193,13 +213,19 @@ npm install
 ## Quick bootstrap
 
 ```bash
-node scripts/wallet_auth.js --address 0x... --chain-id 88817
+node scripts/wallet_helper.js generate
+```
+
+Fund the returned address with native gas, then:
+
+```bash
+node scripts/wallet_auth.js --chain-id 88817
 ```
 
 If the wallet should register under a referral code on first connect:
 
 ```bash
-node scripts/wallet_auth.js --address 0x... --chain-id 88817 --referral-code ABC123XYZ
+node scripts/wallet_auth.js --chain-id 88817 --referral-code ABC123XYZ
 ```
 
 Save the returned `agentSessionToken` into `XYPER_AGENT_TOKEN`, then continue with:

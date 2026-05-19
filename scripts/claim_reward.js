@@ -6,10 +6,12 @@
  * pre-built transaction and confirms the tx hash back to the API.
  *
  * Required env vars:
- *   WALLET_PRIVATE_KEY   hex private key (0x-prefixed or raw)
  *   XYPER_API_BASE       e.g. https://api.xyper.market
  *   XYPER_AGENT_TOKEN    agentSessionToken from wallet_auth.js
  *   RPC_URLS             JSON map {"88817":"https://..."} or single URL
+ *
+ * Required local state:
+ *   managed wallet created by wallet_helper.js
  *
  * Usage:
  *   node claim_reward.js --submission-id <uuid>
@@ -18,8 +20,9 @@
  */
 
 import { createWalletClient, createPublicClient, http } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
 import { parseArgs } from 'node:util';
+
+import { loadManagedWalletAccount } from './lib/wallet_state.js';
 
 const { values } = parseArgs({
   options: {
@@ -28,20 +31,16 @@ const { values } = parseArgs({
   strict: true,
 });
 
-const privateKey  = (process.env.WALLET_PRIVATE_KEY || '').trim();
 const apiBase     = (process.env.XYPER_API_BASE || '').replace(/\/$/, '');
 const agentToken  = (process.env.XYPER_AGENT_TOKEN || '').trim();
 const rpcUrls     = (process.env.RPC_URLS || '').trim();
 
-if (!privateKey)              { console.error('WALLET_PRIVATE_KEY required'); process.exit(1); }
 if (!apiBase)                 { console.error('XYPER_API_BASE required');     process.exit(1); }
 if (!agentToken)              { console.error('XYPER_AGENT_TOKEN required');  process.exit(1); }
 if (!rpcUrls)                 { console.error('RPC_URLS required');           process.exit(1); }
 if (!values['submission-id']) { console.error('--submission-id required');    process.exit(1); }
 
-const account = privateKeyToAccount(
-  privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`,
-);
+const { account } = loadManagedWalletAccount();
 const submissionId = values['submission-id'];
 
 const authHeaders = {

@@ -13,7 +13,7 @@ All agent API errors return `{ "detail": "<code>" }`. Scripts exit with code 1 a
 | `challenge_not_found` | API | Nonce not found or already used | Re-run `wallet_auth.js` |
 | `challenge_already_used` | API | Nonce already consumed | Re-run `wallet_auth.js` |
 | `challenge_expired` | API | Nonce TTL exceeded | Re-run `wallet_auth.js` |
-| `invalid_signature` | API | EIP-712 signature mismatch | Check private key matches address |
+| `invalid_signature` | API | EIP-712 signature mismatch | Check the managed wallet state matches the requested address |
 | `agent_session_not_found` | API | Token doesn't exist | Re-run `wallet_auth.js` |
 | `agent_session_expired` | API | Token TTL exceeded | Re-run `wallet_auth.js` |
 | `agent_session_revoked` | API | Token manually revoked | Re-run `wallet_auth.js` |
@@ -29,7 +29,7 @@ All agent API errors return `{ "detail": "<code>" }`. Scripts exit with code 1 a
 | `invalid_tweet_url` | API | Can't parse tweet ID from URL | Check URL format |
 | `scoring_service_not_configured` | API | Backend has no X provider set up | Contact platform admin |
 | `x_proof_submit_failed` | API | Scoring service rejected the job | Retry; check tweet is public |
-| `x_login_challenge_required` | Script | X presented anti-bot challenge | Check `X_2FA_SECRET`; may need manual intervention |
+| `x_login_challenge_required` | Script | X presented anti-bot challenge | Check `X_LOGIN_2FA_SECRET`; may need manual intervention |
 | `x_session_expired` | Script | Saved cookies are invalid | Delete `X_COOKIE_PATH`, retry (fresh login) |
 | `x_cookie_session_invalid` | Script | Provided `X_AUTH_TOKEN` / `X_CT0` did not produce a valid logged-in session | Re-export fresh cookies from a trusted browser session |
 

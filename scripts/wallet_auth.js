@@ -3,17 +3,20 @@
  * wallet_auth.js — obtain an agentSessionToken by signing an EIP-712 wallet challenge.
  *
  * Required env vars:
- *   WALLET_PRIVATE_KEY   hex private key (0x-prefixed or raw)
  *   XYPER_API_BASE       e.g. https://api.xyper.market
  *
+ * Required local state:
+ *   managed wallet created by wallet_helper.js
+ *
  * Usage:
- *   node wallet_auth.js --address 0x... --chain-id 88817 [--referral-code ABC123]
+ *   node wallet_auth.js --chain-id 88817 [--address 0x...] [--referral-code ABC123]
  *
  * Output (stdout): JSON { agentSessionToken, expiresAt, user, wallet }
  */
 
-import { privateKeyToAccount } from 'viem/accounts';
 import { parseArgs } from 'node:util';
+
+import { loadManagedWalletAccount } from './lib/wallet_state.js';
 
 const { values } = parseArgs({
   options: {
@@ -24,16 +27,20 @@ const { values } = parseArgs({
   strict: true,
 });
 
-const privateKey = (process.env.WALLET_PRIVATE_KEY || '').trim();
 const apiBase    = (process.env.XYPER_API_BASE || '').replace(/\/$/, '');
 
-if (!privateKey)    { console.error('WALLET_PRIVATE_KEY env var required'); process.exit(1); }
 if (!apiBase)       { console.error('XYPER_API_BASE env var required');     process.exit(1); }
-if (!values.address){ console.error('--address required');                  process.exit(1); }
 
-const account = privateKeyToAccount(
-  privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`,
-);
+const { account, walletState } = loadManagedWalletAccount();
+const expectedAddress = account.address.toLowerCase();
+const requestedAddress = (values.address || '').trim().toLowerCase();
+
+if (requestedAddress && requestedAddress !== expectedAddress) {
+  console.error(`--address ${values.address} does not match managed wallet ${walletState.address}`);
+  process.exit(1);
+}
+
+const walletAddress = values.address || walletState.address;
 
 async function post(path, body) {
   const res = await fetch(`${apiBase}${path}`, {
@@ -47,7 +54,7 @@ async function post(path, body) {
 }
 
 // 1. Request nonce challenge (purpose=agent is enforced server-side)
-const nonceBody = { address: values.address };
+const nonceBody = { address: walletAddress };
 if (values['chain-id']) nonceBody.chainId = Number(values['chain-id']);
 
 console.error('Requesting nonce...');
@@ -65,7 +72,7 @@ const signature = await account.signTypedData({
 });
 
 // 3. Verify signature and get session token
-const verifyBody = { address: values.address, nonce, signature };
+const verifyBody = { address: walletAddress, nonce, signature };
 if (values['referral-code']) verifyBody.referralCode = values['referral-code'];
 
 console.error('Verifying signature...');

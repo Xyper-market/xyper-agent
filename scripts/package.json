@@ -5,6 +5,8 @@
   "description": "Agent automation scripts for the Xyper platform",
   "engines": { "node": ">=20" },
   "dependencies": {
+    "@scure/bip32": "^1.7.0",
+    "@scure/bip39": "^1.6.0",
     "viem": "^2.21.0",
     "twitter-api-v2": "^1.17.2",
     "agent-twitter-client": "^0.0.18"
