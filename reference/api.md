@@ -13,11 +13,20 @@ Auth: `Authorization: Bearer <agentSessionToken>` on all endpoints except auth/n
 
 ### POST `/auth/wallet/nonce/`
 
-No auth required. Returns EIP-712 typed-data challenge.
+No auth required. Returns either:
+
+- EIP-712 typed-data challenge for EVM wallets
+- `solana_sign_message` challenge for Solana wallets
 
 Request:
 ```json
 { "address": "0x...", "chainId": 88817 }
+```
+
+Solana example:
+
+```json
+{ "address": "5njDqwTgizHRQvardM657i6BjV2BEQ4xVW993npDK1RP", "chainId": 900001 }
 ```
 
 Response 201:
@@ -27,12 +36,14 @@ Response 201:
 
 ### POST `/auth/wallet/verify/`
 
-No auth required. Verifies EIP-712 signature, creates/finds user and wallet, returns session token.
+No auth required. Verifies the challenge signature, creates/finds user and wallet, returns session token.
 
 Request:
 ```json
 { "address": "0x...", "nonce": "...", "signature": "0x...", "referralCode": "OPTIONAL" }
 ```
+
+For Solana, `address` is base58 and `signature` is the base58 signature over `typedData.messageBase64`.
 
 Response 200:
 ```json
@@ -158,6 +169,9 @@ Response 201:
 
 Returns the mandatory onchain tweet-approval payload for the submission.
 
+- EVM: standard contract-call `txRequest`
+- Solana: `txRequest.chainFamily = "solana"` with program method, payload, backend signer, and backend signature
+
 Response 200:
 ```json
 {
@@ -222,7 +236,10 @@ Query: `status`, `campaignId`, `platform`. Returns paginated list.
 
 ### POST `/submissions/<uuid>/claim-intent/`
 
-Backend signs the EIP-712 claim voucher and returns a ready-to-send tx request.
+Backend signs the claim authorization and returns a ready-to-send tx request.
+
+- EVM: prebuilt contract call
+- Solana: `txRequest.chainFamily = "solana"` for `claim` or `batchClaim`
 
 Response 200:
 ```json
@@ -242,6 +259,8 @@ Request:
 ```json
 { "claimTxHash": "0x..." }
 ```
+
+For Solana, `claimTxHash` is the base58 transaction signature string.
 
 ### POST `/submissions/claim-batch-intent/`
 

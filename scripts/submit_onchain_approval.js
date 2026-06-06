@@ -6,7 +6,7 @@
  * as the wallet owner and confirms the approval tx hash back to the API.
  *
  * Required env vars:
- *   WALLET_PRIVATE_KEY   hex private key (0x-prefixed or raw)
+ *   WALLET_PRIVATE_KEY   EVM hex private key or Solana secret key
  *   XYPER_API_BASE       e.g. https://api.xyper.market
  *   XYPER_AGENT_TOKEN    agentSessionToken from wallet_auth.js
  *   RPC_URLS             JSON map {"88817":"https://..."} or single URL
@@ -17,9 +17,13 @@
  * Output (stdout): JSON { approvalTxHash, submissionId, status }
  */
 
-import { createWalletClient, createPublicClient, encodeFunctionData, http, parseAbi } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { encodeFunctionData, parseAbi } from 'viem';
 import { parseArgs } from 'node:util';
+
+import { apiPost } from './lib/api.js';
+import { createEvmClients, createSolanaConnection } from './lib/rpc.js';
+import { sendSolanaTx } from './lib/solana.js';
+import { getWalletMaterial, requireWalletFamily } from './lib/wallet.js';
 
 const { values } = parseArgs({
   options: {
@@ -28,47 +32,10 @@ const { values } = parseArgs({
   strict: true,
 });
 
-const privateKey = (process.env.WALLET_PRIVATE_KEY || '').trim();
-const apiBase = (process.env.XYPER_API_BASE || '').replace(/\/$/, '');
-const agentToken = (process.env.XYPER_AGENT_TOKEN || '').trim();
-const rpcUrls = (process.env.RPC_URLS || '').trim();
-
-if (!privateKey) { console.error('WALLET_PRIVATE_KEY required'); process.exit(1); }
-if (!apiBase) { console.error('XYPER_API_BASE required'); process.exit(1); }
-if (!agentToken) { console.error('XYPER_AGENT_TOKEN required'); process.exit(1); }
-if (!rpcUrls) { console.error('RPC_URLS required'); process.exit(1); }
 if (!values['submission-id']) { console.error('--submission-id required'); process.exit(1); }
 
-const account = privateKeyToAccount(
-  privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`,
-);
+const material = getWalletMaterial();
 const submissionId = values['submission-id'];
-
-const authHeaders = {
-  'Content-Type': 'application/json',
-  'Authorization': `Bearer ${agentToken}`,
-};
-
-async function agentPost(path, body = {}) {
-  const res = await fetch(`${apiBase}${path}`, {
-    method: 'POST',
-    headers: authHeaders,
-    body: JSON.stringify(body),
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`${path} HTTP ${res.status}: ${json.detail ?? JSON.stringify(json)}`);
-  return json;
-}
-
-function resolveRpcUrl(chainId) {
-  try {
-    const map = JSON.parse(rpcUrls);
-    const url = map[String(chainId)];
-    if (url) return url;
-  } catch { /* single URL format */ }
-  if (rpcUrls.startsWith('http')) return rpcUrls;
-  throw new Error(`No RPC URL configured for chainId ${chainId}. Set RPC_URLS as JSON map.`);
-}
 
 function buildTxRequestData(intent) {
   if (intent?.txRequest?.to && intent?.txRequest?.data) {
@@ -116,7 +83,25 @@ function buildTxRequestData(intent) {
 }
 
 console.error(`Fetching onchain approval intent for submission ${submissionId}...`);
-const intent = await agentPost(`/api/agent/v1/submissions/${submissionId}/onchain-intent/`, {});
+const intent = await apiPost(`/api/agent/v1/submissions/${submissionId}/onchain-intent/`, {}, { auth: true });
+if (intent?.txRequest?.chainFamily === 'solana') {
+  requireWalletFamily(material, 'solana');
+  const chainId = Number(intent.txRequest.chainId ?? intent.chainId);
+  const { connection } = createSolanaConnection(chainId);
+  console.error(`Sending Solana onchain approval tx on chain ${chainId}...`);
+  const { txHash: approvalTxHash } = await sendSolanaTx({
+    connection,
+    keypair: material.solanaKeypair,
+    txRequest: intent.txRequest,
+  });
+  console.error(`Tx sent: ${approvalTxHash}.`);
+  await apiPost(`/api/agent/v1/submissions/${submissionId}/onchain-confirm/`, {
+    approvalTxHash,
+  }, { auth: true });
+  console.log(JSON.stringify({ approvalTxHash, submissionId, status: 'approved_onchain' }, null, 2));
+  process.exit(0);
+}
+
 const txRequest = buildTxRequestData(intent);
 
 if (!txRequest?.to || !txRequest?.data) {
@@ -125,17 +110,8 @@ if (!txRequest?.to || !txRequest?.data) {
 }
 
 const chainId = Number(txRequest.chainId);
-const rpcUrl = resolveRpcUrl(chainId);
-
-const chain = {
-  id: chainId,
-  name: `chain-${chainId}`,
-  nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
-  rpcUrls: { default: { http: [rpcUrl] } },
-};
-
-const walletClient = createWalletClient({ account, chain, transport: http(rpcUrl) });
-const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
+requireWalletFamily(material, 'evm');
+const { walletClient, publicClient } = createEvmClients({ account: material.evmAccount, chainId });
 
 console.error(`Sending onchain approval tx on chain ${chainId}...`);
 const approvalTxHash = await walletClient.sendTransaction({
@@ -148,8 +124,8 @@ console.error(`Tx sent: ${approvalTxHash}. Waiting for receipt...`);
 await publicClient.waitForTransactionReceipt({ hash: approvalTxHash });
 console.error('Tx confirmed.');
 
-await agentPost(`/api/agent/v1/submissions/${submissionId}/onchain-confirm/`, {
+await apiPost(`/api/agent/v1/submissions/${submissionId}/onchain-confirm/`, {
   approvalTxHash,
-});
+}, { auth: true });
 
 console.log(JSON.stringify({ approvalTxHash, submissionId, status: 'approved_onchain' }, null, 2));

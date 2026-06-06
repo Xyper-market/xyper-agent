@@ -16,6 +16,11 @@ There are currently two wallet-flow variants for this skill:
 
 The current `main` branch documents the legacy `env-key-wallet-flow` behavior unless stated otherwise in a feature branch README.
 
+Shared goal across both branches:
+
+- keep the agent flow, endpoint contract, and chain-aware helpers identical
+- isolate only the wallet custody mechanism between branches
+
 ## What is inside
 
 ```text
@@ -44,7 +49,7 @@ xyper-agent/
 
 The skill automates the participant lifecycle without browser sessions or CSRF:
 
-1. wallet auth via EIP-712 signature
+1. wallet auth via EIP-712 signature or Solana sign-message challenge
 2. X account linking
 3. campaign discovery and join
 4. post generation and submission registration
@@ -59,6 +64,9 @@ Claiming can now happen in three shapes:
 - single submission claim
 - per-campaign batch claim
 - cross-campaign claim-all on one chain
+
+Campaign reward claiming supports both EVM and Solana.
+Referral reward claiming remains EVM-only.
 
 ## Portability model
 
@@ -96,6 +104,8 @@ This is required for:
 - campaign batch-claim / claim-all transactions
 - referral reward claim transactions
 
+For Solana campaigns, the same wallet must also be able to sign Solana auth challenges and send Solana program transactions.
+
 Examples:
 
 - Unit Zero Testnet: fund the wallet with the network native test token
@@ -118,7 +128,7 @@ Environment reference:
 |----------|----------|-----------------|---------|
 | `XYPER_API_BASE` | yes | operator | Base URL of Xyper agent API, e.g. `https://api-staging.xyper.market` |
 | `XYPER_APP_BASE_URL` | recommended | operator | Public app base URL used when generating referral links, e.g. `https://app-staging.xyper.market` or `https://xyper.market` |
-| `WALLET_PRIVATE_KEY` | yes | operator | Wallet used for auth, onchain approval tx, and reward claim tx |
+| `WALLET_PRIVATE_KEY` | yes | operator | In `env-key-wallet-flow`: either EVM private key (hex) or Solana secret key (JSON array, base58, or base64 encoded 64-byte secret key) used for auth, onchain approval tx, and reward claim tx |
 | `XYPER_AGENT_TOKEN` | no | runtime | Ephemeral bearer token returned by `wallet_auth.js`; runtime may keep it in memory or persist briefly between runs |
 | `XYPER_REFERRAL_CODE` | optional | operator | Referral code to use only on first wallet registration / first verify |
 | `RPC_URLS` | yes for onchain actions | operator | JSON map of chain id to RPC URL, or single URL for single-chain deployments |
@@ -202,17 +212,31 @@ cd scripts
 npm install
 ```
 
+This installs both EVM and Solana helper dependencies.
+
 ## Quick bootstrap
+
+EVM:
 
 ```bash
 node scripts/wallet_auth.js --address 0x... --chain-id 88817
 ```
+
+Solana:
+
+```bash
+node scripts/wallet_auth.js --address 5njDqwTgizHRQvardM657i6BjV2BEQ4xVW993npDK1RP --chain-id 900001
+```
+
+If `--address` is omitted, the helper derives it from `WALLET_PRIVATE_KEY`.
 
 If the wallet should register under a referral code on first connect:
 
 ```bash
 node scripts/wallet_auth.js --address 0x... --chain-id 88817 --referral-code ABC123XYZ
 ```
+
+For Solana, the same helper works with a base58 address and Solana chain id.
 
 Save the returned `agentSessionToken` into `XYPER_AGENT_TOKEN`, then continue with:
 
@@ -225,6 +249,7 @@ Practical note:
 
 - `XYPER_AGENT_TOKEN` is usually runtime state, not static configuration
 - a robust orchestrator stores it ephemerally and refreshes it by calling `wallet_auth.js` again on expiry
+- for Solana auth, the backend returns `typedData.kind = "solana_sign_message"` and the helper signs `messageBase64`
 
 ## X modes
 

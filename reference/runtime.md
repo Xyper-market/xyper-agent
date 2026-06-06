@@ -33,7 +33,10 @@ The orchestrating Claude agent reads stdout JSON and decides next steps.
 
 ## Wallet / signing
 
-Library: `viem` (^2.x).
+Libraries:
+
+- EVM: `viem`
+- Solana: `@solana/web3.js`, `@solana/spl-token`, `tweetnacl`, `bs58`
 
 ### EIP-712 sign (wallet_auth.js)
 
@@ -43,6 +46,15 @@ viem's `account.signTypedData()` requires that `EIP712Domain` is **not** present
 const { EIP712Domain, ...types } = typedData.types;
 const signature = await account.signTypedData({ domain, types, primaryType, message });
 ```
+
+### Solana sign-message auth (wallet_auth.js)
+
+For Solana auth, backend returns:
+
+- `typedData.kind = "solana_sign_message"`
+- `typedData.messageBase64`
+
+The helper signs the decoded message bytes with the Solana secret key and sends the resulting base58 signature to `/auth/wallet/verify/`.
 
 ### Sending claim transactions
 
@@ -56,6 +68,8 @@ const txHash = await walletClient.sendTransaction({
 });
 await publicClient.waitForTransactionReceipt({ hash: txHash });
 ```
+
+For Solana, the runtime sends the returned program instruction bundle, including backend Ed25519 proof and, when needed, idempotent ATA creation.
 
 ### Sending mandatory onchain tweet-approval transactions
 

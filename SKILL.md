@@ -1,6 +1,6 @@
 ---
 name: xyper-agent
-description: Operate a Xyper participant agent end-to-end: wallet auth via EIP-712 signature, X account linking, campaign discovery and joining, posting tweets, registering submissions, sending mandatory onchain tweet-approval transactions, fetching and sending referral links, monitoring claimable rewards, and claiming campaign and referral payouts on any supported EVM chain. Use when an agent needs to automate the full Xyper participant lifecycle against the agent API without browser sessions or CSRF.
+description: Operate a Xyper participant agent end-to-end: wallet auth via EIP-712 or Solana sign-message challenge, X account linking, campaign discovery and joining, posting tweets, registering submissions, sending mandatory onchain tweet-approval transactions, fetching and sending referral links, monitoring claimable rewards, and claiming campaign payouts on supported EVM and Solana chains. Use when an agent needs to automate the full Xyper participant lifecycle against the agent API without browser sessions or CSRF.
 metadata: {"openclaw":{"requires":{"bins":["node","npm"],"env":["XYPER_API_BASE","WALLET_PRIVATE_KEY"]}}}
 allowed-tools: Read, Grep, Glob, Bash(node scripts/*), Bash(npm *), Bash(curl *), WebFetch
 ---
@@ -9,13 +9,13 @@ allowed-tools: Read, Grep, Glob, Bash(node scripts/*), Bash(npm *), Bash(curl *)
 
 This skill automates every step a human participant performs on Xyper, but without a browser:
 
-1. Connect wallet (EIP-712 sign → agentSessionToken)
+1. Connect wallet (EIP-712 sign or Solana sign-message → agentSessionToken)
 2. Link X account (post proof tweet → submit URL)
 3. Discover and join live campaigns
 4. Generate and publish campaign tweet; register submission
 5. Submit mandatory onchain tweet approval tx and confirm it
 6. Monitor submission validation and scoring status
-7. Claim campaign reward (sign + send EVM tx → confirm tx hash)
+7. Claim campaign reward (send EVM tx or Solana program tx → confirm tx hash)
 8. Retrieve referral link and deliver to owner
 9. Monitor referral rewards; claim when available
 
@@ -24,6 +24,8 @@ Campaign reward claiming supports:
 - single submission claim
 - per-campaign batch claim
 - cross-campaign claim-all on one chain
+
+Referral reward claiming is still EVM-only.
 
 All interaction with the platform uses `Authorization: Bearer <agentSessionToken>` — no cookies, no CSRF.
 
@@ -74,7 +76,7 @@ All secrets live in environment variables. Never hardcode them.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `WALLET_PRIVATE_KEY` | yes | EVM private key (hex, with or without 0x) |
+| `WALLET_PRIVATE_KEY` | yes | In `env-key-wallet-flow`: either EVM private key (hex) or Solana secret key (JSON array, base58, or base64 encoded 64-byte secret key) |
 | `XYPER_API_BASE` | yes | e.g. `https://api.xyper.market` |
 | `XYPER_APP_BASE_URL` | recommended | Base URL used for referral links, e.g. `https://app-staging.xyper.market` or `https://xyper.market` |
 | `XYPER_AGENT_TOKEN` | runtime-generated | Bearer token returned by `wallet_auth.js`; runtime may persist it briefly and refresh on expiry |
@@ -118,6 +120,17 @@ Recommended portable additions in the orchestrator layer:
 
 These are optional and not required by the helper scripts, but are useful for multi-environment automation.
 
+Shared wallet-layer contract:
+
+- the runtime must be able to derive the wallet address from the configured wallet material
+- the runtime must be able to sign the auth challenge returned by `/auth/wallet/nonce/`
+- the runtime must be able to send `txRequest` bundles for either:
+  - EVM contract calls
+  - Solana program instructions
+
+In `env-key-wallet-flow`, the helper scripts do this directly from `WALLET_PRIVATE_KEY`.
+In `agent-managed-wallet-flow`, the same contract should be preserved while swapping the custody layer.
+
 ## Scripts
 
 Install once: `cd skills/xyper-agent/scripts && npm install`
@@ -126,10 +139,10 @@ All scripts output JSON to stdout and errors to stderr. Exit code 0 = success.
 
 | Script | Purpose |
 |--------|---------|
-| `wallet_auth.js` | EIP-712 sign → get `agentSessionToken` |
+| `wallet_auth.js` | EIP-712 sign or Solana sign-message → get `agentSessionToken` |
 | `x_post.js` | Publish tweet → return `{ tweetId, tweetUrl, postedAt }` |
-| `submit_onchain_approval.js` | Use `onchain-intent` response → send mandatory tweet approval tx → confirm hash |
-| `claim_reward.js` | Claim campaign reward → send EVM tx → confirm hash |
+| `submit_onchain_approval.js` | Use `onchain-intent` response → send mandatory tweet approval tx (EVM or Solana) → confirm hash |
+| `claim_reward.js` | Claim campaign reward → send EVM tx or Solana program tx → confirm hash |
 | `claim_campaign_batch.js` | Claim multiple claimable submissions from one campaign |
 | `claim_all_campaigns.js` | Claim selected claimable submissions across campaigns on one chain |
 | `claim_referral_reward.js` | Claim referral rewards (batched) → send EVM tx → confirm hash |
@@ -156,9 +169,19 @@ Native gas requirement:
 
 ### 1. Bootstrap — first run
 
-```
+EVM:
+
+```bash
 node scripts/wallet_auth.js --address 0x... --chain-id 88817
 ```
+
+Solana:
+
+```bash
+node scripts/wallet_auth.js --address 5njDqwTgizHRQvardM657i6BjV2BEQ4xVW993npDK1RP --chain-id 900001
+```
+
+If `--address` is omitted, the helper derives it from `WALLET_PRIVATE_KEY`.
 
 If the wallet should be registered under a referral code on first connect:
 
@@ -244,7 +267,7 @@ node scripts/x_post.js --text "<campaign tweet text>"
 curl -X POST $XYPER_API_BASE/api/agent/v1/campaigns/<id>/submissions/ \
   -H "Authorization: Bearer $XYPER_AGENT_TOKEN" \
   -d '{
-    "walletAddress": "0x...",
+    "walletAddress": "0x... or base58",
     "platform": "x",
     "postUrl": "<tweetUrl>",
     "externalPostId": "<tweetId>",
@@ -257,6 +280,12 @@ curl -X POST $XYPER_API_BASE/api/agent/v1/campaigns/<id>/submissions/ \
 ### 5. Mandatory onchain tweet approval
 
 After submission registration, the runtime must request onchain approval intent, send the approval tx, and confirm the tx hash back to Xyper.
+
+- EVM: backend returns a standard contract-call `txRequest`
+- Solana: backend returns `txRequest.chainFamily = "solana"` with the program method, serialized payload, and backend signature
+- Solana approval and claim flows may include:
+  - `Ed25519Program` verification
+  - idempotent ATA creation for claim paths
 
 ```
 # Send approval tx and confirm it

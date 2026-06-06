@@ -5,7 +5,11 @@
   "description": "Agent automation scripts for the Xyper platform",
   "engines": { "node": ">=20" },
   "dependencies": {
+    "@solana/spl-token": "^0.4.12",
+    "@solana/web3.js": "^1.98.4",
     "viem": "^2.21.0",
+    "bs58": "^6.0.0",
+    "tweetnacl": "^1.0.3",
     "twitter-api-v2": "^1.17.2",
     "agent-twitter-client": "^0.0.18"
   }

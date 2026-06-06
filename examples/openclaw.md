@@ -162,6 +162,7 @@ Check that helpers work:
 ```bash
 cd <workspace>/skills/xyper-agent/scripts
 node wallet_auth.js --address 0x... --chain-id REPLACE_CHAIN_ID
+node wallet_auth.js --address 5njDqwTgizHRQvardM657i6BjV2BEQ4xVW993npDK1RP --chain-id 900001
 ```
 
 ## Sandbox note
