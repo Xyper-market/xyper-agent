@@ -19,10 +19,13 @@
  * Output (stdout): JSON { approvalTxHash, submissionId, status }
  */
 
-import { createWalletClient, createPublicClient, encodeFunctionData, http, parseAbi } from 'viem';
+import { encodeFunctionData, parseAbi } from 'viem';
 import { parseArgs } from 'node:util';
 
-import { loadManagedWalletAccount } from './lib/wallet_state.js';
+import { apiPost } from './lib/api.js';
+import { createEvmClients, createSolanaConnection } from './lib/rpc.js';
+import { sendSolanaTx } from './lib/solana.js';
+import { loadManagedWalletMaterial, requireWalletFamily } from './lib/wallet_state.js';
 
 const { values } = parseArgs({
   options: {
@@ -31,43 +34,13 @@ const { values } = parseArgs({
   strict: true,
 });
 
-const apiBase = (process.env.XYPER_API_BASE || '').replace(/\/$/, '');
-const agentToken = (process.env.XYPER_AGENT_TOKEN || '').trim();
-const rpcUrls = (process.env.RPC_URLS || '').trim();
+if (!values['submission-id']) {
+  console.error('--submission-id required');
+  process.exit(1);
+}
 
-if (!apiBase) { console.error('XYPER_API_BASE required'); process.exit(1); }
-if (!agentToken) { console.error('XYPER_AGENT_TOKEN required'); process.exit(1); }
-if (!rpcUrls) { console.error('RPC_URLS required'); process.exit(1); }
-if (!values['submission-id']) { console.error('--submission-id required'); process.exit(1); }
-
-const { account } = loadManagedWalletAccount();
+const material = loadManagedWalletMaterial();
 const submissionId = values['submission-id'];
-
-const authHeaders = {
-  'Content-Type': 'application/json',
-  'Authorization': `Bearer ${agentToken}`,
-};
-
-async function agentPost(path, body = {}) {
-  const res = await fetch(`${apiBase}${path}`, {
-    method: 'POST',
-    headers: authHeaders,
-    body: JSON.stringify(body),
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`${path} HTTP ${res.status}: ${json.detail ?? JSON.stringify(json)}`);
-  return json;
-}
-
-function resolveRpcUrl(chainId) {
-  try {
-    const map = JSON.parse(rpcUrls);
-    const url = map[String(chainId)];
-    if (url) return url;
-  } catch { /* single URL format */ }
-  if (rpcUrls.startsWith('http')) return rpcUrls;
-  throw new Error(`No RPC URL configured for chainId ${chainId}. Set RPC_URLS as JSON map.`);
-}
 
 function buildTxRequestData(intent) {
   if (intent?.txRequest?.to && intent?.txRequest?.data) {
@@ -82,9 +55,6 @@ function buildTxRequestData(intent) {
     throw new Error('onchain-intent did not return a directly sendable txRequest.data or a supported acceptTweetApproval payload');
   }
 
-  // Contract: acceptTweetApproval(TweetApproval calldata v, bytes calldata sig)
-  // TweetApproval uses uint48 for approvedAt and deadline, NOT uint256.
-  // Two separate args — do NOT wrap them in an outer tuple.
   const abi = parseAbi([
     'function acceptTweetApproval((bytes32 approvalId,address wallet,bytes32 tweetIdHash,bytes32 twitterAccountIdHash,bytes32 contentHash,uint48 approvedAt,uint48 deadline) voucher, bytes signature)',
   ]);
@@ -94,13 +64,13 @@ function buildTxRequestData(intent) {
     functionName: 'acceptTweetApproval',
     args: [
       {
-        approvalId:           voucher.approvalId,
-        wallet:               voucher.wallet,
-        tweetIdHash:          voucher.tweetIdHash,
+        approvalId: voucher.approvalId,
+        wallet: voucher.wallet,
+        tweetIdHash: voucher.tweetIdHash,
         twitterAccountIdHash: voucher.twitterAccountIdHash,
-        contentHash:          voucher.contentHash,
-        approvedAt:           BigInt(voucher.approvedAt),
-        deadline:             BigInt(voucher.deadline),
+        contentHash: voucher.contentHash,
+        approvedAt: BigInt(voucher.approvedAt),
+        deadline: BigInt(voucher.deadline),
       },
       signature,
     ],
@@ -115,7 +85,25 @@ function buildTxRequestData(intent) {
 }
 
 console.error(`Fetching onchain approval intent for submission ${submissionId}...`);
-const intent = await agentPost(`/api/agent/v1/submissions/${submissionId}/onchain-intent/`, {});
+const intent = await apiPost(`/api/agent/v1/submissions/${submissionId}/onchain-intent/`, {}, { auth: true });
+if (intent?.txRequest?.chainFamily === 'solana') {
+  requireWalletFamily(material, 'solana');
+  const chainId = Number(intent.txRequest.chainId ?? intent.chainId);
+  const { connection } = createSolanaConnection(chainId);
+  console.error(`Sending Solana onchain approval tx on chain ${chainId}...`);
+  const { txHash: approvalTxHash } = await sendSolanaTx({
+    connection,
+    keypair: material.solanaKeypair,
+    txRequest: intent.txRequest,
+  });
+  console.error(`Tx sent: ${approvalTxHash}.`);
+  await apiPost(`/api/agent/v1/submissions/${submissionId}/onchain-confirm/`, {
+    approvalTxHash,
+  }, { auth: true });
+  console.log(JSON.stringify({ approvalTxHash, submissionId, status: 'approved_onchain' }, null, 2));
+  process.exit(0);
+}
+
 const txRequest = buildTxRequestData(intent);
 
 if (!txRequest?.to || !txRequest?.data) {
@@ -124,17 +112,8 @@ if (!txRequest?.to || !txRequest?.data) {
 }
 
 const chainId = Number(txRequest.chainId);
-const rpcUrl = resolveRpcUrl(chainId);
-
-const chain = {
-  id: chainId,
-  name: `chain-${chainId}`,
-  nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
-  rpcUrls: { default: { http: [rpcUrl] } },
-};
-
-const walletClient = createWalletClient({ account, chain, transport: http(rpcUrl) });
-const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
+requireWalletFamily(material, 'evm');
+const { walletClient, publicClient } = createEvmClients({ account: material.evmAccount, chainId });
 
 console.error(`Sending onchain approval tx on chain ${chainId}...`);
 const approvalTxHash = await walletClient.sendTransaction({
@@ -147,8 +126,8 @@ console.error(`Tx sent: ${approvalTxHash}. Waiting for receipt...`);
 await publicClient.waitForTransactionReceipt({ hash: approvalTxHash });
 console.error('Tx confirmed.');
 
-await agentPost(`/api/agent/v1/submissions/${submissionId}/onchain-confirm/`, {
+await apiPost(`/api/agent/v1/submissions/${submissionId}/onchain-confirm/`, {
   approvalTxHash,
-});
+}, { auth: true });
 
 console.log(JSON.stringify({ approvalTxHash, submissionId, status: 'approved_onchain' }, null, 2));

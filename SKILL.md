@@ -1,6 +1,6 @@
 ---
 name: xyper-agent
-description: Operate a Xyper participant agent end-to-end: generate a session-scoped BIP44 EVM wallet, fund it, authenticate via EIP-712, link X, join campaigns, post tweets, register submissions, send mandatory onchain tweet-approval transactions, fetch referral links, monitor claimable rewards, and claim campaign and referral payouts on supported EVM chains. Use when an agent needs to automate the full Xyper participant lifecycle against the agent API without browser sessions or CSRF.
+description: Operate a Xyper participant agent end-to-end: generate a session-scoped managed EVM + Solana wallet state, fund it, authenticate via EIP-712 or Solana sign-message, link X, join campaigns, post tweets, register submissions, send mandatory onchain tweet-approval transactions, fetch referral links, monitor claimable rewards, and claim campaign and referral payouts on supported EVM and Solana chains. Use when an agent needs to automate the full Xyper participant lifecycle against the agent API without browser sessions or CSRF.
 metadata: {"openclaw":{"requires":{"bins":["node","npm"],"env":["XYPER_API_BASE"]}}}
 allowed-tools: Read, Grep, Glob, Bash(node scripts/*), Bash(npm *), Bash(curl *), WebFetch
 ---
@@ -9,13 +9,13 @@ allowed-tools: Read, Grep, Glob, Bash(node scripts/*), Bash(npm *), Bash(curl *)
 
 This skill automates every step a human participant performs on Xyper, but without a browser:
 
-1. Connect wallet (EIP-712 sign → agentSessionToken)
+1. Connect wallet (EIP-712 sign or Solana sign-message → agentSessionToken)
 2. Link X account (post proof tweet → submit URL)
 3. Discover and join live campaigns
 4. Generate and publish campaign tweet; register submission
 5. Submit mandatory onchain tweet approval tx and confirm it
 6. Monitor submission validation and scoring status
-7. Claim campaign reward (send EVM tx → confirm tx hash)
+7. Claim campaign reward (send EVM tx or Solana program tx → confirm tx hash)
 8. Retrieve referral link and deliver to owner
 9. Monitor referral rewards; claim when available
 
@@ -84,7 +84,7 @@ Wallet material lives in a JSON state file created by `wallet_helper.js`. Other 
 | `XYPER_WALLET_STATE_PATH` | optional | Path to the managed wallet JSON file. Default: `<skill-root>/.xyper-agent-wallet.json` |
 | `XYPER_AGENT_TOKEN` | runtime-generated | Bearer token returned by `wallet_auth.js`; runtime may persist it briefly and refresh on expiry |
 | `XYPER_REFERRAL_CODE` | optional | Referral code to use during first wallet verify only |
-| `RPC_URLS` | for claims | JSON map `{"88817":"https://rpc.unit0.dev"}` or single URL |
+| `RPC_URLS` | for claims | JSON map `{"88817":"https://rpc.unit0.dev","900001":"https://api.devnet.solana.com"}` or single URL |
 | `X_API_KEY` | API posting mode | X developer app key |
 | `X_API_SECRET` | API posting mode | X developer app secret |
 | `X_ACCESS_TOKEN` | API posting mode | X user access token |
@@ -131,11 +131,11 @@ All scripts output JSON to stdout and errors to stderr. Exit code 0 = success.
 
 | Script | Purpose |
 |--------|---------|
-| `wallet_helper.js` | Generate / inspect / explicitly export the skill-managed BIP44 EVM wallet |
-| `wallet_auth.js` | EIP-712 sign → get `agentSessionToken` |
+| `wallet_helper.js` | Generate / inspect / explicitly export the skill-managed EVM + Solana wallet state |
+| `wallet_auth.js` | EIP-712 sign or Solana sign-message → get `agentSessionToken` |
 | `x_post.js` | Publish tweet → return `{ tweetId, tweetUrl, postedAt }` |
-| `submit_onchain_approval.js` | Use `onchain-intent` response → send mandatory tweet approval tx → confirm hash |
-| `claim_reward.js` | Claim campaign reward → send EVM tx → confirm hash |
+| `submit_onchain_approval.js` | Use `onchain-intent` response → send mandatory tweet approval tx (EVM or Solana) → confirm hash |
+| `claim_reward.js` | Claim campaign reward → send EVM tx or Solana program tx → confirm hash |
 | `claim_campaign_batch.js` | Claim multiple claimable submissions from one campaign |
 | `claim_all_campaigns.js` | Claim selected claimable submissions across campaigns on one chain |
 | `claim_referral_reward.js` | Claim referral rewards (batched) → send EVM tx → confirm hash |
@@ -162,21 +162,28 @@ Native gas requirement:
 
 ### 1. Bootstrap — first run
 
-```
+```bash
 node scripts/wallet_helper.js generate
 ```
 
-Save the returned `address` and fund it with native gas on each target chain. The helper stores secrets only in the local wallet-state file. It does not print the private key or mnemonic unless explicitly asked later with:
+Save the returned `evmAddress` / `solanaAddress` and fund them with native gas on each target chain. The helper stores secrets only in the local wallet-state file. It does not print private material unless explicitly asked later with:
 
-```
+```bash
 node scripts/wallet_helper.js export --secret private-key
 node scripts/wallet_helper.js export --secret mnemonic
+node scripts/wallet_helper.js export --secret solana-secret-key
 ```
 
 Then authenticate:
 
-```
+```bash
 node scripts/wallet_auth.js --chain-id 88817
+```
+
+For Solana:
+
+```bash
+node scripts/wallet_auth.js --address <managed solana address> --chain-id 900001
 ```
 
 If the wallet should be registered under a referral code on first connect:

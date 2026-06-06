@@ -11,7 +11,6 @@ All scripts are ES modules (`"type": "module"` in package.json). Node.js ≥ 20 
 ```
 skills/xyper-agent/scripts/
 ├── package.json
-├── wallet_helper.js
 ├── wallet_auth.js
 ├── x_post.js
 ├── submit_onchain_approval.js
@@ -34,30 +33,10 @@ The orchestrating Claude agent reads stdout JSON and decides next steps.
 
 ## Wallet / signing
 
-Library: `viem` (^2.x).
+Libraries:
 
-### Managed wallet state
-
-The skill does not read an EVM private key from env anymore.
-
-Instead:
-
-1. `wallet_helper.js generate` creates a new BIP44 wallet at `m/44'/60'/0'/0/<index>`
-2. the helper stores mnemonic + private key in a local JSON state file
-3. the helper prints only the public address by default
-4. the helper prints the private key or mnemonic only through an explicit `export` command
-
-Default state path:
-
-```text
-<skill-root>/.xyper-agent-wallet.json
-```
-
-Override with:
-
-```text
-XYPER_WALLET_STATE_PATH=/custom/path/xyper-wallet.json
-```
+- EVM: `viem`
+- Solana: `@solana/web3.js`, `@solana/spl-token`, `tweetnacl`, `bs58`
 
 ### EIP-712 sign (wallet_auth.js)
 
@@ -67,6 +46,15 @@ viem's `account.signTypedData()` requires that `EIP712Domain` is **not** present
 const { EIP712Domain, ...types } = typedData.types;
 const signature = await account.signTypedData({ domain, types, primaryType, message });
 ```
+
+### Solana sign-message auth (wallet_auth.js)
+
+For Solana auth, backend returns:
+
+- `typedData.kind = "solana_sign_message"`
+- `typedData.messageBase64`
+
+The helper signs the decoded message bytes with the Solana secret key and sends the resulting base58 signature to `/auth/wallet/verify/`.
 
 ### Sending claim transactions
 
@@ -81,6 +69,8 @@ const txHash = await walletClient.sendTransaction({
 await publicClient.waitForTransactionReceipt({ hash: txHash });
 ```
 
+For Solana, the runtime sends the returned program instruction bundle, including backend Ed25519 proof and, when needed, idempotent ATA creation.
+
 ### Sending mandatory onchain tweet-approval transactions
 
 For X campaign submissions, the normal lifecycle includes an onchain approval step:
@@ -92,7 +82,7 @@ For X campaign submissions, the normal lifecycle includes an onchain approval st
 
 The runtime does not need browser state for this. It only needs:
 
-- a generated managed wallet state file
+- `WALLET_PRIVATE_KEY`
 - the returned `chainId`
 - a matching RPC URL from `RPC_URLS`
 
@@ -106,7 +96,7 @@ As with reward claims, the runtime is the wallet executor; backend prepares the 
 
 ### Native gas balance
 
-The managed wallet used by the skill must have enough native coin on the target chain to pay gas for:
+The wallet used by the skill must have enough native coin on the target chain to pay gas for:
 
 - onchain tweet approval
 - campaign reward claims
@@ -184,7 +174,8 @@ Security note:
 
 Package: `agent-twitter-client`
 
-Required env vars: `X_USERNAME`, `X_LOGIN_PASSWORD`.
+Required env vars: `X_USERNAME`, `X_PASSWORD`.
+Preferred for OpenClaw: `X_USERNAME`, `X_LOGIN_PASSWORD`.
 Backward-compatible legacy names: `X_PASSWORD`.
 Optional: `X_EMAIL` (for login email confirmation), `X_LOGIN_2FA_SECRET` (preferred), `X_2FA_SECRET` (legacy), `X_COOKIE_PATH`.
 Optional for browser-capable runtimes: `X_BROWSER_LOGIN_URL`, `X_BROWSER_PROFILE_DIR`.

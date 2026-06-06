@@ -87,7 +87,7 @@ Important:
         env: {
           XYPER_API_BASE: "https://api-staging.xyper.market",
           XYPER_WALLET_STATE_PATH: "/opt/openclaw/config/xyper-staging-wallet.json",
-          RPC_URLS: "{\"UNITZERO_TESTNET_CHAIN_ID\":\"https://rpc-testnet.unit0.dev\",\"84532\":\"https://base-sepolia.gateway.tenderly.co\"}",
+          RPC_URLS: "{\"900001\":\"https://api.devnet.solana.com\",\"84532\":\"https://base-sepolia.gateway.tenderly.co\"}",
           X_COOKIE_PATH: "/opt/openclaw/config/xyper-staging-x-cookies.json",
           X_BROWSER_LOGIN_URL: "https://x.com/i/flow/login",
           X_BROWSER_PROFILE_DIR: "/opt/openclaw/config/xyper-staging-x-browser-profile"
@@ -163,6 +163,7 @@ Check that helpers work:
 cd <workspace>/skills/xyper-agent/scripts
 node wallet_helper.js generate --state-path /opt/openclaw/config/xyper-staging-wallet.json
 node wallet_auth.js --chain-id REPLACE_CHAIN_ID
+node wallet_auth.js --address <managed solana address> --chain-id 900001
 ```
 
 ## Sandbox note

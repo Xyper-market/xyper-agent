@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * wallet_helper.js — manage the skill-owned EVM wallet used by xyper-agent.
+ * wallet_helper.js — manage the skill-owned EVM + Solana wallet set used by xyper-agent.
  *
  * Commands:
  *   generate [--account-index 0] [--state-path /path/to/wallet.json] [--force]
@@ -64,21 +64,26 @@ try {
     const { walletState, resolvedStatePath } = generateManagedWallet({ statePath, accountIndex });
     printJson({
       status: 'generated',
-      address: walletState.address,
+      address: walletState.evm.address,
+      evmAddress: walletState.evm.address,
+      solanaAddress: walletState.solana.address,
       accountIndex: walletState.accountIndex,
       derivationPath: walletState.derivationPath,
       statePath: resolvedStatePath,
-      nextStep: 'Fund this address with native gas before wallet_auth or onchain actions.',
+      nextStep: 'Fund the EVM and/or Solana address with native gas before wallet_auth or onchain actions.',
       secretExport: [
         'node scripts/wallet_helper.js export --secret private-key',
         'node scripts/wallet_helper.js export --secret mnemonic',
+        'node scripts/wallet_helper.js export --secret solana-secret-key',
       ],
     });
   } else if (command === 'inspect') {
     const { walletState, resolvedStatePath } = loadWalletState(statePath);
     printJson({
       status: 'ready',
-      address: walletState.address,
+      address: walletState.evm.address,
+      evmAddress: walletState.evm.address,
+      solanaAddress: walletState.solana.address,
       accountIndex: walletState.accountIndex,
       derivationPath: walletState.derivationPath || getDerivationPath(walletState.accountIndex || 0),
       createdAt: walletState.createdAt,
@@ -88,21 +93,26 @@ try {
     const { walletState, resolvedStatePath } = loadWalletState(statePath);
     const secret = (values.secret || '').trim();
 
-    if (!['private-key', 'mnemonic', 'all'].includes(secret)) {
-      throw new Error(`--secret must be one of: private-key, mnemonic, all`);
+    if (!['private-key', 'mnemonic', 'solana-secret-key', 'all'].includes(secret)) {
+      throw new Error(`--secret must be one of: private-key, mnemonic, solana-secret-key, all`);
     }
 
     const payload = {
       status: 'exported',
       statePath: resolvedStatePath,
-      address: walletState.address,
+      address: walletState.evm.address,
+      evmAddress: walletState.evm.address,
+      solanaAddress: walletState.solana.address,
     };
 
     if (secret === 'private-key' || secret === 'all') {
-      payload.privateKey = walletState.privateKey;
+      payload.privateKey = walletState.evm.privateKey;
     }
     if (secret === 'mnemonic' || secret === 'all') {
       payload.mnemonic = walletState.mnemonic;
+    }
+    if (secret === 'solana-secret-key' || secret === 'all') {
+      payload.solanaSecretKeyBase58 = walletState.solana.secretKeyBase58;
     }
     if (secret === 'all') {
       payload.accountIndex = walletState.accountIndex;

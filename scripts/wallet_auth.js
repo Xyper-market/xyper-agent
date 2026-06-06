@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * wallet_auth.js — obtain an agentSessionToken by signing an EIP-712 wallet challenge.
+ * wallet_auth.js — obtain an agentSessionToken by signing an auth challenge.
  *
  * Required env vars:
  *   XYPER_API_BASE       e.g. https://api.xyper.market
@@ -9,73 +9,40 @@
  *   managed wallet created by wallet_helper.js
  *
  * Usage:
- *   node wallet_auth.js --chain-id 88817 [--address 0x...] [--referral-code ABC123]
+ *   node wallet_auth.js [--address 0x...|<base58>] --chain-id 88817|900001 [--referral-code ABC123]
  *
  * Output (stdout): JSON { agentSessionToken, expiresAt, user, wallet }
  */
 
 import { parseArgs } from 'node:util';
 
-import { loadManagedWalletAccount } from './lib/wallet_state.js';
+import { apiPost } from './lib/api.js';
+import { loadManagedWalletMaterial, resolveRequestedAddress, signAuthPayload } from './lib/wallet_state.js';
 
 const { values } = parseArgs({
   options: {
-    address:          { type: 'string' },
-    'chain-id':       { type: 'string', default: '' },
-    'referral-code':  { type: 'string', default: '' },
+    address: { type: 'string' },
+    'chain-id': { type: 'string', default: '' },
+    'referral-code': { type: 'string', default: '' },
   },
   strict: true,
 });
 
-const apiBase    = (process.env.XYPER_API_BASE || '').replace(/\/$/, '');
+const material = loadManagedWalletMaterial();
+const address = resolveRequestedAddress(material, values.address || '');
 
-if (!apiBase)       { console.error('XYPER_API_BASE env var required');     process.exit(1); }
-
-const { account, walletState } = loadManagedWalletAccount();
-const expectedAddress = account.address.toLowerCase();
-const requestedAddress = (values.address || '').trim().toLowerCase();
-
-if (requestedAddress && requestedAddress !== expectedAddress) {
-  console.error(`--address ${values.address} does not match managed wallet ${walletState.address}`);
-  process.exit(1);
-}
-
-const walletAddress = values.address || walletState.address;
-
-async function post(path, body) {
-  const res = await fetch(`${apiBase}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`${path} HTTP ${res.status}: ${json.detail ?? JSON.stringify(json)}`);
-  return json;
-}
-
-// 1. Request nonce challenge (purpose=agent is enforced server-side)
-const nonceBody = { address: walletAddress };
+const nonceBody = { address };
 if (values['chain-id']) nonceBody.chainId = Number(values['chain-id']);
 
 console.error('Requesting nonce...');
-const { nonce, typedData } = await post('/api/agent/v1/auth/wallet/nonce/', nonceBody);
+const { nonce, typedData } = await apiPost('/api/agent/v1/auth/wallet/nonce/', nonceBody);
 
-// 2. Sign EIP-712 typed data
-// viem requires EIP712Domain to be absent from the types object
-const { EIP712Domain: _domain, ...types } = typedData.types;
+const signature = await signAuthPayload(material, typedData, address);
 
-const signature = await account.signTypedData({
-  domain:      typedData.domain,
-  types,
-  primaryType: typedData.primaryType,
-  message:     typedData.message,
-});
-
-// 3. Verify signature and get session token
-const verifyBody = { address: walletAddress, nonce, signature };
+const verifyBody = { address, nonce, signature };
 if (values['referral-code']) verifyBody.referralCode = values['referral-code'];
 
 console.error('Verifying signature...');
-const result = await post('/api/agent/v1/auth/wallet/verify/', verifyBody);
+const result = await apiPost('/api/agent/v1/auth/wallet/verify/', verifyBody);
 
 console.log(JSON.stringify(result, null, 2));

@@ -12,7 +12,10 @@ There are currently two wallet-flow variants for this skill:
   This branch uses the legacy model where the runtime provides `WALLET_PRIVATE_KEY` in env. The agent reads that key directly for wallet auth and all onchain actions.
 
 - `agent-managed-wallet-flow`
-  This branch uses a skill-managed BIP44 wallet. The agent generates a local wallet state file, returns only the public address by default for funding, and reveals the private key or mnemonic only on explicit user request.
+  This branch uses a skill-managed dual-wallet state. The agent generates one local state file that contains:
+  - an EVM wallet derived from a BIP44 mnemonic
+  - a managed Solana keypair
+  It returns only public addresses by default for funding, and reveals private material only on explicit user request.
 
 The current `main` branch documents the legacy `env-key-wallet-flow` behavior unless stated otherwise in a feature branch README.
 
@@ -45,8 +48,8 @@ xyper-agent/
 
 The skill automates the participant lifecycle without browser sessions or CSRF:
 
-0. generate a session-scoped BIP44 EVM wallet
-1. wallet auth via EIP-712 signature
+0. generate a session-scoped managed wallet state for EVM + Solana
+1. wallet auth via EIP-712 signature or Solana sign-message challenge
 2. X account linking
 3. campaign discovery and join
 4. post generation and submission registration
@@ -93,10 +96,12 @@ This skill no longer expects a wallet private key in env.
 
 Instead it manages a local session wallet:
 
-- `node scripts/wallet_helper.js generate` creates a new BIP44 EVM wallet
-- the helper stores mnemonic + private key in a local JSON state file
-- the helper prints only the public address by default
-- the private key or mnemonic are shown only through explicit export commands
+- `node scripts/wallet_helper.js generate` creates:
+  - a new BIP44 EVM wallet
+  - a managed Solana keypair
+- the helper stores both in one local JSON state file
+- the helper prints only the public addresses by default
+- private material is shown only through explicit export commands
 
 Useful commands:
 
@@ -105,6 +110,7 @@ node scripts/wallet_helper.js generate
 node scripts/wallet_helper.js inspect
 node scripts/wallet_helper.js export --secret private-key
 node scripts/wallet_helper.js export --secret mnemonic
+node scripts/wallet_helper.js export --secret solana-secret-key
 ```
 
 The managed wallet must hold enough native gas token on every chain where the agent sends transactions.
@@ -115,6 +121,12 @@ This is required for:
 - campaign reward claim transactions
 - campaign batch-claim / claim-all transactions
 - referral reward claim transactions
+
+For Solana campaigns, the same managed state must also fund the Solana address with enough SOL for:
+
+- auth-related Solana signing flows
+- onchain approval
+- claim / batchClaim
 
 Examples:
 
@@ -228,10 +240,18 @@ npm install
 node scripts/wallet_helper.js generate
 ```
 
-Fund the returned address with native gas, then:
+Fund the returned `evmAddress` and/or `solanaAddress` with native gas, then authenticate.
+
+EVM:
 
 ```bash
 node scripts/wallet_auth.js --chain-id 88817
+```
+
+Solana:
+
+```bash
+node scripts/wallet_auth.js --address <managed solana address> --chain-id 900001
 ```
 
 If the wallet should register under a referral code on first connect:
@@ -239,6 +259,8 @@ If the wallet should register under a referral code on first connect:
 ```bash
 node scripts/wallet_auth.js --chain-id 88817 --referral-code ABC123XYZ
 ```
+
+For Solana, use the same command shape with the managed Solana address and Solana chain id.
 
 Save the returned `agentSessionToken` into `XYPER_AGENT_TOKEN`, then continue with:
 
